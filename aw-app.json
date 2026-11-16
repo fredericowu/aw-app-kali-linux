@@ -61,13 +61,20 @@
         "target": "/config/repos",
         "mode": "ro",
         "reason": "This workspace's checkouts, so the desktop can open/read them from Dolphin, an editor, or a shell. Read-only on purpose: the monolith mounted the whole workspace read-write (.:/home/abc/agentic-workspace:cached) and a GUI session could scribble on the live tree. Writes belong in /config."
+      },
+      {
+        "source": "$AW_WORKSPACE_ROOT",
+        "target": "/opt/aw-workspace",
+        "mode": "rw",
+        "reason": "Mounts the workspace root at the same path inside Kali so tools, scripts, and shared files in /opt/aw-workspace are directly accessible read-write and persist across container recreations."
       }
     ]
   },
   "permissions": [
     "containers:manage",
     "fs:workspace-data",
-    "fs:workspace-read"
+    "fs:workspace-read",
+    "fs:workspace-write"
   ],
   "contributes": {
     "windows": [

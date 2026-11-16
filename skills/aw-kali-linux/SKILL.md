@@ -20,8 +20,9 @@ no VNC client, no extra port.
 |---|---|---|
 | `/config` (the `abc` user's `$HOME`) | `$AW_APP_DATA` | **yes** |
 | `/config/repos` | `$AW_WORKSPACE_REPOS`, **read-only** | yes (it's the live tree) |
+| `/opt/aw-workspace` | `$AW_WORKSPACE_ROOT`, **read-write** | yes (it's the live tree) |
 | `/custom-cont-init.d` | `$AW_APP_DATA/custom-cont-init.d` | **yes** |
-| everything else (`/usr`, `/etc`, `/opt`, …) | container writable layer | **no** |
+| everything else (`/usr`, `/etc`, `/opt` outside `/opt/aw-workspace`, …) | container writable layer | **no** |
 
 That last row is the one that bites. `apt-get install <x>` writes to `/usr`
 and `/var`, so it is **gone** on the next app update, workspace redeploy, or
