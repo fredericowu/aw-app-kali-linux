@@ -1,7 +1,9 @@
 """Execute the s6 launcher across a stubbed process boundary, using pinned config.
 
 CI checks out exactly the gateway ref from the image's Dockerfile. Locally set
-AW_TEST_GATEWAY_CONFIG to that checkout's back/gateway/config.py.
+AW_TEST_GATEWAY_CONFIG to that checkout's back/gateway/config.py. The shared
+release workflow runs pytest without that checkout, so fetch the same pinned
+source into process scratch when neither local source is available.
 """
 import json
 import os
@@ -9,6 +11,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import urllib.request
 
 import pytest
 
@@ -50,12 +53,26 @@ print(json.dumps({'env': {k: os.environ[k] for k in (
 '''
 
 
+@pytest.fixture(scope='session')
+def gateway_config(tmp_path_factory):
+    explicit = os.environ.get('AW_TEST_GATEWAY_CONFIG')
+    path = Path(explicit) if explicit else ROOT / '.gateway-test/back/gateway/config.py'
+    if explicit or path.is_file():
+        assert path.is_file(), f'Missing pinned gateway config: {path}'
+        return path
+    ref = re.search(r'^ARG AW_MCP_GATEWAY_REF=(\S+)',
+                    (ROOT / 'container/Dockerfile').read_text(), re.MULTILINE).group(1)
+    url = f'https://raw.githubusercontent.com/tekflox/aw-mcp-gateway/{ref}/back/gateway/config.py'
+    path = tmp_path_factory.mktemp('pinned-gateway') / 'config.py'
+    with urllib.request.urlopen(url, timeout=30) as response:
+        path.write_bytes(response.read())
+    return path
+
+
 @pytest.mark.parametrize('custom', [False, True])
 @pytest.mark.parametrize('inherited', [False, True])
-def test_launcher_isolates_mounted_workspace(tmp_path, custom, inherited):
-    config_path = Path(os.environ.get(
-        'AW_TEST_GATEWAY_CONFIG', ROOT / '.gateway-test/back/gateway/config.py'))
-    assert config_path.is_file(), 'Provide the Dockerfile-pinned gateway config (see module docstring)'
+def test_launcher_isolates_mounted_workspace(tmp_path, custom, inherited, gateway_config):
+    config_path = gateway_config
     foreign = tmp_path / 'workspace/apps'
     for app in ('readable', 'self-federation', 'unreadable'):
         directory = foreign / app
