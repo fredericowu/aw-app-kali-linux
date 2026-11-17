@@ -45,10 +45,12 @@ rm -f /config/aw-playwright-profile/SingletonLock \
 chown -R abc:abc "$CONF_DIR"
 
 export AW_GATEWAY_JSON="$CONF_DIR/gateway.json"
-# AW_MCP_JSON is this gateway's own write-only merged-config cache (scanned +
-# custom) — never a source of upstreams on its own, so the actual pool goes
-# into AW_MCP_CUSTOM_JSON instead (config.py's scan_app_mcp_servers() has
-# nothing to scan here: there is no /opt/aw-workspace/apps inside Kali).
+# The workspace is mounted here, but its apps/profiles belong to the parent
+# gateway. Explicitly empty roots disable discovery, overriding inherited
+# roots too; only this leaf's defaults or AW_KALI_MCP_CONFIG define its pool.
+export AW_APP_SCAN_ROOTS=''
+# AW_MCP_JSON is the write-only merged-config cache, never an upstream source.
+# Put the explicit leaf pool in AW_MCP_CUSTOM_JSON instead.
 export AW_MCP_JSON="$CONF_DIR/mcp.json"
 export AW_MCP_CUSTOM_JSON="$CONF_DIR/mcp.custom.json"
 # Neutralises register_self_in_host_mcp_json() — must not scribble a
