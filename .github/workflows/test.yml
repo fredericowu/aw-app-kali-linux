@@ -67,6 +67,13 @@ jobs:
       - name: Validate mcp.json
         run: python3 tests/validate_mcp_config.py
 
+      # Exercise the same config implementation baked into the Kali image.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: tekflox/aw-mcp-gateway
+          ref: v0.39.0
+          path: .gateway-test
+
       - name: Run test suite
         run: python3 -m pytest tests/ -v
 

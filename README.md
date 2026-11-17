@@ -97,3 +97,13 @@ python tests/validate_manifest.py
 ```
 
 <!-- aw-app-* fleet migration B2: follow-up no-op PR proving the comment + workflow_run merge paths (DESIGN.md §3 step 8). -->
+
+## Leaf gateway discovery boundary
+
+The workspace remains mounted read-write at `/opt/aw-workspace`. The Kali
+launcher unconditionally exports `AW_APP_SCAN_ROOTS=''` before importing
+the gateway, disabling discovery of all app MCPs and gateway profiles,
+including inherited scan roots. Mounted workspace configurations belong to
+the parent gateway and must never be imported into this leaf. The baked
+Playwright and `kali_control` defaults remain the pool unless explicitly
+replaced through `mcp_gateway_config` (`AW_KALI_MCP_CONFIG`).
