@@ -4,12 +4,14 @@
       "enabled": true,
       "type": "stdio",
       "command": "npx",
+      "cwd": "/opt/aw-workspace/.tmp/playwright",
       "args": [
         "-y",
         "@playwright/mcp@0.0.77",
         "--executable-path", "/usr/local/bin/chromium-aw",
         "--user-data-dir", "/config/aw-playwright-profile",
-        "--no-sandbox"
+        "--no-sandbox",
+        "--output-dir", "/opt/aw-workspace/.tmp/playwright"
       ]
     },
     "kali_control": {

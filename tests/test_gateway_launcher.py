@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import urllib.request
@@ -71,9 +72,13 @@ def gateway_config(tmp_path_factory):
 
 @pytest.mark.parametrize('custom', [False, True])
 @pytest.mark.parametrize('inherited', [False, True])
-def test_launcher_isolates_mounted_workspace(tmp_path, custom, inherited, gateway_config):
+@pytest.mark.parametrize('layout', ['fresh', 'upgrade', 'redirected-root', 'redirected-child'])
+def test_launcher_isolates_mounted_workspace(tmp_path, custom, inherited, layout, gateway_config):
     config_path = gateway_config
-    foreign = tmp_path / 'workspace/apps'
+    workspace = tmp_path / 'workspace'
+    scratch = workspace / '.tmp'
+    output = scratch / 'playwright'
+    foreign = workspace / 'apps'
     for app in ('readable', 'self-federation', 'unreadable'):
         directory = foreign / app
         directory.mkdir(parents=True)
@@ -82,11 +87,27 @@ def test_launcher_isolates_mounted_workspace(tmp_path, custom, inherited, gatewa
         (directory / 'gateway-profiles.json').write_text(json.dumps({
             'profiles': {'foreign-profile': {'upstreams': [app]}}}))
     (foreign / 'unreadable/mcp.json').chmod(0)
+    target = tmp_path / 'symlink-target'
+    target.mkdir(mode=0o700)
+    if layout == 'upgrade':
+        output.mkdir(parents=True, mode=0o700)
+        scratch.chmod(0o751)
+        (output / 'existing.png').write_bytes(b'existing')
+    elif layout == 'redirected-root':
+        scratch.symlink_to(target, target_is_directory=True)
+    elif layout == 'redirected-child':
+        scratch.mkdir()
+        output.symlink_to(target, target_is_directory=True)
+    scratch_before = scratch.lstat() if scratch.exists() else None
     # The deterministic open trap above also works as root, unlike chmod alone.
     config_root = tmp_path / 'config'
     defaults = json.loads((ROOT / 'container/defaults/gateway-mcp.json').read_text())
     assert set(defaults['mcpServers']) == {'playwright', 'kali_control'}
-    override = {'mcpServers': {'explicit-local': {'type': 'stdio', 'command': 'local'}}}
+    playwright = defaults['mcpServers']['playwright']
+    assert playwright['cwd'] == '/opt/aw-workspace/.tmp/playwright'
+    assert playwright['args'][playwright['args'].index('--output-dir') + 1] == playwright['cwd']
+    override = {'mcpServers': {'explicit-local': {
+        'type': 'stdio', 'command': 'local', 'cwd': '/custom', 'args': ['--custom']}}}
     gateway = tmp_path / 'gateway'
     (gateway / 'back').mkdir(parents=True)
     (gateway / '.venv/bin').mkdir(parents=True)
@@ -97,12 +118,17 @@ def test_launcher_isolates_mounted_workspace(tmp_path, custom, inherited, gatewa
     python.chmod(0o755)
     bin_dir = tmp_path / 'bin'
     bin_dir.mkdir()
-    for name, content in {'chown': 'exit 0', 's6-setuidgid': 'shift\nexec "$@"'}.items():
+    for name, content in {
+        'chown': 'exit 0',
+        'id': 'exec /usr/bin/id "$1"',
+        's6-setuidgid': 'shift\nexec "$@"',
+    }.items():
         stub = bin_dir / name
         stub.write_text('#!/bin/sh\n' + content + '\n')
         stub.chmod(0o755)
     # Redirect only image filesystem paths; execute all launcher control flow.
     launcher = (ROOT / 'container/services/aw-mcp-gateway/run').read_text()
+    launcher = launcher.replace('/opt/aw-workspace', str(workspace))
     launcher = launcher.replace('/config', str(config_root))
     launcher = launcher.replace('/defaults/aw-gateway-mcp.json', str(ROOT / 'container/defaults/gateway-mcp.json'))
     launcher = launcher.replace('/opt/aw-mcp-gateway', str(gateway))
@@ -119,7 +145,31 @@ def test_launcher_isolates_mounted_workspace(tmp_path, custom, inherited, gatewa
     # Repeat boot with stale merged cache and a different previous custom pool.
     for boot in range(2):
         result = subprocess.run(['bash', str(script)], env=env, text=True, capture_output=True)
+        if layout.startswith('redirected') and not custom:
+            assert result.returncode != 0
+            assert 'NotADirectoryError' in result.stderr
+            assert not list(target.iterdir())
+            assert stat.S_IMODE(target.stat().st_mode) == 0o700
+            return
         assert result.returncode == 0, result.stdout + result.stderr
+        if scratch_before is not None:
+            after = scratch.lstat()
+            assert (after.st_mode, after.st_uid, after.st_gid) == (
+                scratch_before.st_mode, scratch_before.st_uid, scratch_before.st_gid)
+        if custom:
+            assert output.is_dir() == (layout in ('upgrade', 'redirected-child'))
+            if layout == 'upgrade':
+                assert stat.S_IMODE(output.stat().st_mode) == 0o700
+        else:
+            if layout == 'fresh':
+                assert stat.S_IMODE(scratch.stat().st_mode) == 0o755
+                assert (scratch.stat().st_uid, scratch.stat().st_gid) == (
+                    workspace.stat().st_uid, workspace.stat().st_gid)
+            assert stat.S_IMODE(output.stat().st_mode) == 0o2775
+            assert (output.stat().st_uid, output.stat().st_gid) == (os.getuid(), os.getgid())
+        if layout == 'upgrade':
+            assert (output / 'existing.png').read_bytes() == b'existing'
+        assert not list(target.iterdir())
         report = json.loads(result.stdout)
         assert report['final'] == (override if custom else defaults)
         assert report['env'] == {
