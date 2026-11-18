@@ -107,3 +107,15 @@ including inherited scan roots. Mounted workspace configurations belong to
 the parent gateway and must never be imported into this leaf. The baked
 Playwright and `kali_control` defaults remain the pool unless explicitly
 replaced through `mcp_gateway_config` (`AW_KALI_MCP_CONFIG`).
+
+### Playwright screenshots
+
+With the default Kali gateway config, `browser_take_screenshot` saves files
+under `/opt/aw-workspace/.tmp/playwright`. Pass a relative filename such as
+`report.png` to save a named file and get its path in the response. Omit the
+filename to save a timestamped `page-*.png` and receive the image in the
+response. Playwright rejects screenshot destinations outside this directory.
+
+Keep the baked Playwright upstream's `cwd` and `--output-dir` pointed at
+the same directory. Recheck both screenshot forms when upgrading Playwright
+MCP. A custom `mcp_gateway_config` supplies its own upstream settings.

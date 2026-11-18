@@ -29,6 +29,47 @@ JSON
 if [ -n "${AW_KALI_MCP_CONFIG:-}" ]; then
   printf '%s' "$AW_KALI_MCP_CONFIG" > "$CONF_DIR/mcp.custom.json"
 else
+  # Keep this directory aligned with the baked Playwright cwd and --output-dir.
+  # Open each path component without following symlinks and apply metadata to
+  # the opened directory, so a workspace rename cannot redirect those writes.
+  python3 - /opt/aw-workspace "$(id -u abc)" "$(id -g abc)" <<'PYTHON'
+import os
+import stat
+import sys
+
+workspace, uid, gid = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+os.umask(0o022)
+workspace_fd = os.open(workspace, flags)
+try:
+    os.mkdir(".tmp", 0o755, dir_fd=workspace_fd)
+except FileExistsError:
+    tmp_fd = os.open(".tmp", flags, dir_fd=workspace_fd)
+else:
+    tmp_fd = os.open(".tmp", flags, dir_fd=workspace_fd)
+    workspace_owner = os.fstat(workspace_fd)
+    os.fchown(tmp_fd, workspace_owner.st_uid, workspace_owner.st_gid)
+try:
+    os.mkdir("playwright", 0o755, dir_fd=tmp_fd)
+except FileExistsError:
+    created = False
+else:
+    created = True
+output_fd = os.open("playwright", flags, dir_fd=tmp_fd)
+metadata = os.fstat(output_fd)
+change_group = created or metadata.st_gid != gid
+if change_group:
+    os.fchown(output_fd, uid if created else -1, gid)
+mode = stat.S_IMODE(metadata.st_mode)
+# Keep the workspace owner's access and make new subdirectories inherit abc's group.
+if change_group or mode != 0o2775:
+    os.fchmod(output_fd, 0o2775)
+PYTHON
+  if ! s6-setuidgid abc test -w /opt/aw-workspace/.tmp/playwright ||
+     ! s6-setuidgid abc test -x /opt/aw-workspace/.tmp/playwright; then
+    echo "Kali Playwright output directory is inaccessible to abc: /opt/aw-workspace/.tmp/playwright" >&2
+    exit 1
+  fi
   cp /defaults/aw-gateway-mcp.json "$CONF_DIR/mcp.custom.json"
 fi
 
