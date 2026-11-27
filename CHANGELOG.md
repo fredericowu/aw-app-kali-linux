@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Fix: Kali is now published as a native multi-arch image (`linux/amd64` +
+`linux/arm64`). On an arm64 host (Apple-silicon Mac under AW Desktop) the
+amd64-only image ran under qemu-user, where Debian's `/usr/bin/chromium`
+wrapper fails its SSE3 `/proc/cpuinfo` check and blocks on an `xmessage`
+dialog, so every Playwright browser tool call hung. `build.yml` now builds
+both platforms on release pushes (QEMU always set up, 360 min timeout,
+per-commit concurrency group that never cancels an in-flight build).
+`aw-app.json` `runtime.image` now points at `ghcr.io/fredericowu/...`, the
+registry CI actually pushes to (the `tekflox` package is frozen). `chromium-aw`
+fails fast with one stderr line on an emulated x86 host instead of hanging.
+
 Feature: this container's own Chromium now receives cookies synced via the
 aw-sync browser extension, not just `aw-app-browser`'s. `chromium-aw` adds
 `--remote-debugging-port=9222` to every launch (unconditional — works with

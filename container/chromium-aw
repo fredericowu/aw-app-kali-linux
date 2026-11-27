@@ -18,6 +18,19 @@ FLAG_FILE=/config/aw-proxy/config.json
 REAL_CHROMIUM=/usr/bin/chromium
 HOST="${AW_WORKSPACE_HOST:-127.0.0.1}"
 
+# Emulated amd64 (qemu-user on an arm64 host): /proc/cpuinfo is the HOST's, so
+# Debian's /usr/bin/chromium wrapper finds no sse3/pni and blocks forever on an
+# xmessage dialog -- every browser tool call then hangs. Fail fast instead.
+# Real amd64 hosts always list pni in cpuinfo and never take this branch.
+case "$(uname -m)" in
+    x86_64|i?86)
+        if [ -r /proc/cpuinfo ] && ! grep -qE '\<(sse3|pni)\>' /proc/cpuinfo; then
+            echo "chromium-aw: x86 Chromium cannot run here (no sse3/pni in /proc/cpuinfo; amd64 image emulated on a non-x86 host?). Use the native linux/arm64 image." >&2
+            exit 1
+        fi
+        ;;
+esac
+
 # Every launch now exposes CDP on :9222 (see the two execs below) — but
 # @playwright/mcp only starts Chromium lazily, on its first tool call, and
 # aw-app-proxy's own cookie reconcile loop only polls every 15s. Without
