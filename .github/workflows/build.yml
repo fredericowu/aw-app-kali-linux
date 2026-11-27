@@ -5,14 +5,16 @@ name: Build Kali Linux image
 # commits so `latest` follows the tagged manifest release. Manual rebuilds
 # remain available via workflow_dispatch.
 #
-#   gh workflow run build.yml                        # amd64 only (default)
-#   gh workflow run build.yml -f include_arm64=true   # also linux/arm64 (QEMU, slow)
+#   gh workflow run build.yml                          # linux/amd64 + linux/arm64 (default)
+#   gh workflow run build.yml -f include_arm64=false    # amd64 only (opt-out)
 #
-# Deviation from aw-app-browser's build.yml (which defaults to BOTH
-# platforms): this base image is ~8 GB uncompressed before this repo adds
-# Chromium/Node/the gateway venv on top, and the workspace host this image
-# actually runs on is amd64 — QEMU-emulated arm64 on a base this size is
-# prohibitive as a default. arm64 stays available as an explicit opt-in.
+# Multi-arch by default, same shape as aw-app-browser's build.yml. arm64 is
+# NOT optional for release builds: on an arm64 host (Apple-silicon Mac under
+# AW Desktop) an amd64-only image runs under qemu-user, where Debian's
+# chromium wrapper fails its SSE3 /proc/cpuinfo check and blocks on an
+# xmessage dialog, so every Playwright browser tool call hangs. The base
+# image is ~8 GB uncompressed, so the QEMU arm64 leg is slow (hence the long
+# timeout); it is the price of a native image on arm64 hosts.
 #
 # One-time manual step after the FIRST push: the package is created private
 # regardless of this repo's own visibility, and GitHub has no REST/GraphQL
@@ -29,13 +31,16 @@ on:
   workflow_dispatch:
     inputs:
       include_arm64:
-        description: 'Also build linux/arm64 (QEMU emulation; slower)'
+        description: 'Also build linux/arm64 (QEMU emulation; slower). Set false for amd64 only.'
         type: boolean
-        default: false
+        default: true
 
+# One group per commit and never cancel: a later push to master (whose own
+# job is skipped unless it is a release bump) must not cancel a long
+# in-flight multi-arch build of the bump commit.
 concurrency:
-  group: build-aw-app-kali-linux-${{ github.ref }}
-  cancel-in-progress: true
+  group: build-aw-app-kali-linux-${{ github.sha }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -46,12 +51,11 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[skip release]')) }}
     name: aw-app-kali-linux
     runs-on: [self-hosted, aw-baremetal]
-    timeout-minutes: 90
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up QEMU
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_arm64 == true }}
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
@@ -72,12 +76,13 @@ jobs:
       - name: Resolve platforms
         id: plat
         run: |
-          # amd64-only by default (see header comment) — arm64 is an
-          # explicit opt-IN via manual dispatch, inverse of aw-app-browser.
-          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.include_arm64 == true }}" = "true" ]; then
-            echo "platforms=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
-          else
+          # Multi-arch by default — this also covers push-triggered builds
+          # (the release-bump commit), which have no workflow_dispatch
+          # `inputs`. amd64-only is an explicit opt-OUT via manual dispatch.
+          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.include_arm64 == false }}" = "true" ]; then
             echo "platforms=linux/amd64" >> "$GITHUB_OUTPUT"
+          else
+            echo "platforms=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Read app version

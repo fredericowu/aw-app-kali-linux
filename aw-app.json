@@ -15,7 +15,7 @@
     "disk": "~10 GB"
   },
   "runtime": {
-    "image": "ghcr.io/tekflox/aw-app-kali-linux:latest",
+    "image": "ghcr.io/fredericowu/aw-app-kali-linux:latest",
     "port": 3500,
     "resources": {
       "cpus": 2,
