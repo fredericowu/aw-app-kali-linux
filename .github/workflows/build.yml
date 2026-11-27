@@ -6,7 +6,7 @@ name: Build Kali Linux image
 # remain available via workflow_dispatch.
 #
 #   gh workflow run build.yml                          # linux/amd64 + linux/arm64 (default)
-#   gh workflow run build.yml -f include_arm64=false    # amd64 only (opt-out)
+#   gh workflow run build.yml -f include_arm64=false    # amd64 only (opt-out; sha tag only, never moves latest)
 #
 # Multi-arch by default, same shape as aw-app-browser's build.yml. arm64 is
 # NOT optional for release builds: on an arm64 host (Apple-silicon Mac under
@@ -93,6 +93,27 @@ jobs:
           print(f"version={json.load(open('aw-app.json'))['version']}")
           PY
 
+      - name: Resolve tags
+        id: tags
+        env:
+          PLATFORMS: ${{ steps.plat.outputs.platforms }}
+          VERSION: ${{ steps.version.outputs.version }}
+          IMG: ghcr.io/${{ steps.owner.outputs.lc }}/aw-app-kali-linux
+        run: |
+          # Only a multi-arch build of the CURRENT master head may move the
+          # release tags (`latest`, `vX.Y.Z`): the workspace pulls `latest`
+          # on app start, so an amd64-only rebuild or an older commit that
+          # finishes late must not replace it. Everything else is published
+          # under an immutable sha tag only.
+          tags="$IMG:${GITHUB_SHA}"
+          head="$(git ls-remote origin refs/heads/master | cut -f1)"
+          if [ "$PLATFORMS" = "linux/amd64,linux/arm64" ] && [ "$head" = "$GITHUB_SHA" ]; then
+            tags="$tags,$IMG:latest,$IMG:v${VERSION}"
+          else
+            echo "::notice::release tags NOT moved (platforms=$PLATFORMS, master head=$head, sha=$GITHUB_SHA)"
+          fi
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -100,10 +121,7 @@ jobs:
           file: container/Dockerfile
           platforms: ${{ steps.plat.outputs.platforms }}
           push: true
-          tags: |
-            ghcr.io/${{ steps.owner.outputs.lc }}/aw-app-kali-linux:latest
-            ghcr.io/${{ steps.owner.outputs.lc }}/aw-app-kali-linux:v${{ steps.version.outputs.version }}
-            ghcr.io/${{ steps.owner.outputs.lc }}/aw-app-kali-linux:${{ github.sha }}
+          tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=registry,ref=ghcr.io/${{ steps.owner.outputs.lc }}/aw-app-kali-linux:buildcache
           cache-to: type=registry,ref=ghcr.io/${{ steps.owner.outputs.lc }}/aw-app-kali-linux:buildcache,mode=max
 

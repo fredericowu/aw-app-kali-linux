@@ -39,3 +39,15 @@ def test_manifest_image_owner_matches_build_push_target():
     assert owner == "fredericowu"
     if "github.com" in remote and "aw-app-kali-linux" in remote:
         assert f"/{owner}/" in remote.lower() or f":{owner}/" in remote.lower()
+
+
+def test_release_tags_only_for_multiarch_current_head():
+    m = re.search(r"- name: Resolve tags\n(.*?)\n\n", BUILD, re.S)
+    assert m
+    block = m.group(1)
+    # latest/version tags are gated on multi-arch AND the current master head.
+    assert '"$PLATFORMS" = "linux/amd64,linux/arm64"' in block
+    assert '"$head" = "$GITHUB_SHA"' in block
+    # the unconditional tag is the sha tag only
+    assert 'tags="$IMG:${GITHUB_SHA}"' in block
+    assert "tags: ${{ steps.tags.outputs.tags }}" in BUILD
